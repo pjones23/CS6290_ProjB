@@ -18,12 +18,12 @@
 // 1024 = (1<<10)
 // 2048  = (1<<11)
 // 32KB = 262144 = (1<<18)
-#define HIST_LEN 15
+#define HIST_LEN 63
 #define WEIGHT_SIZE (1<<3) // number of bits per weight
 #define HW_BUGDGET (1<<18) // Hardware budget ( in bits ) = 32 KB = 32768 B = 262144 b
-#define NUM_WEIGHTS (1<<4) // HIST_LEN+1 = 15 + 1
+#define NUM_WEIGHTS (1<<6) // HIST_LEN+1 = 15 + 1
 //#define NUM_PERCEPTRONS (HW_BUGDGET / (NUM_WEIGHTS * WEIGHT_SIZE)) //(hardwareBudget / (numWeights * numBitsPerWeight))
-#define NUM_PERCEPTRONS (1<<11)
+#define NUM_PERCEPTRONS (1<<9)
 
 INT32 perceptronTbl[NUM_PERCEPTRONS][NUM_WEIGHTS]; // table of perceptrons
 
@@ -52,6 +52,7 @@ PREDICTOR::PREDICTOR(void) {
 	// Threshold value: the best threshold, phi, for a given history length h is always exactly phi = 1.93*h + 14
 	numWeights = NUM_WEIGHTS;
 	numPerceptrons = NUM_PERCEPTRONS;
+	numPhtEntries = NUM_PERCEPTRONS;
 
 	threshold = (1.93 * historyLength) + 14;
 
@@ -61,6 +62,18 @@ PREDICTOR::PREDICTOR(void) {
 		for (INT32 j = 0; j < numWeights; j++) {
 			perceptronTbl[i][j] = WEIGHT_INIT;
 		}
+	}
+
+	lht = new UINT64[numPerceptrons];
+	for (INT32 k = 0; k < numPerceptrons; k++)
+	{
+		lht[k] = 0;
+	}
+
+	pht = new UINT32[numPhtEntries]; // to negate the effects of exponential growth of PHT for gshare
+
+	for(UINT32 ii=0; ii< numPhtEntries; ii++){
+		pht[ii]=PHT_CTR_INIT;
 	}
 
 	//cout << "history length: " << historyLength << endl;
@@ -81,13 +94,26 @@ bool PREDICTOR::GetPrediction(UINT32 PC) {
 	UINT32 perceptronIndex = getPerceptronIndex(PC);
 	INT32 prediction = getPerceptronPrediction(perceptronIndex);
 
-	//cout << "pred: " << prediction << endl;
+	bool perceptPred;
 
-	if (prediction >= 0) {
-		return TAKEN;
-	} else {
-		return NOT_TAKEN;
+	if(prediction >= 0){
+		perceptPred = TAKEN;
+	}else{
+		perceptPred = NOT_TAKEN;
 	}
+
+	UINT32 phtIndex   = (PC^ghr) % (numPhtEntries);
+	UINT32 phtCounter = pht[phtIndex];
+
+	bool gsharePred;
+
+	if(phtCounter > PHT_CTR_MAX/2){
+		gsharePred = TAKEN;
+	}else{
+		gsharePred = NOT_TAKEN;
+	}
+
+	return perceptPred | (gsharePred >> 1);
 
 }
 
@@ -97,6 +123,20 @@ bool PREDICTOR::GetPrediction(UINT32 PC) {
 void PREDICTOR::UpdatePredictor(UINT32 PC, bool resolveDir, bool predDir,
 UINT32 branchTarget) {
 
+	// update gshare
+	UINT32 phtIndex   = (PC^ghr) % (numPhtEntries);
+	UINT32 phtCounter = pht[phtIndex];
+
+	// update the PHT
+
+	if(resolveDir == TAKEN){
+		pht[phtIndex] = SatIncrement(phtCounter, PHT_CTR_MAX);
+	}else{
+		pht[phtIndex] = SatDecrement(phtCounter);
+	}
+
+
+	// update perceptron
 	// resolveDir = 0 or 1
 	// train
 	INT32 t;
@@ -141,6 +181,12 @@ UINT32 branchTarget) {
 		ghr++;
 	}
 
+	// update local history table
+	lht[perceptronIndex] = (lht[perceptronIndex] << 1);
+	if (resolveDir == TAKEN) {
+		lht[perceptronIndex]++;
+	}
+
 }
 
 /////////////////////////////////////////////////////////////
@@ -160,7 +206,18 @@ void PREDICTOR::TrackOtherInst(UINT32 PC, OpType opType, UINT32 branchTarget) {
 /////////////////////////////////////////////////////////////
 
 UINT32 PREDICTOR::getPerceptronIndex(UINT32 PC) {
-	return (PC % numPerceptrons);
+	return ((PC^ghr) % numPerceptrons);
+}
+
+UINT32 PREDICTOR::getMA(UINT32 PC){
+	UINT32 perceptronIndex = getPerceptronIndex(PC);
+	UINT64 lhtEntry = lht[perceptronIndex];
+	UINT32 MA = PC;
+	MA = MA>>3;
+	MA = MA<<3;
+	lhtEntry = lhtEntry%(1<<3);
+	MA = MA | lhtEntry;
+	return MA;
 }
 
 INT32 PREDICTOR::getPerceptronPrediction(UINT32 perceptronIndex) {

@@ -47,9 +47,10 @@ class PREDICTOR {
 
 private:
 	UINT64 ghr;          // global history register
-	// UINT32 *pht;          // pattern history table
+	UINT64 *lht;          // local history table
+	UINT32  *pht;          // pattern history table
 	INT32 historyLength; // history length
-	// UINT32 numPhtEntries; // entries in pht
+	UINT32 numPhtEntries; // entries in pht
 
 public:
 
@@ -67,6 +68,7 @@ public:
 	INT32 saturatedWeightInc(INT32 originalWeight);
 	INT32 saturatedWeightDec(INT32 originalWeight);
 	INT32 getBitOfGHR(INT32 bitIndex);
+	UINT32 getMA(UINT32 PC);
 
 	INT32 numPerceptrons; // number of perceptrons
 	INT32 numWeights; 	   // number of weights in each perceptron
