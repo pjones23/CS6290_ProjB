@@ -3,6 +3,7 @@
 
 #include "utils.h"
 #include "tracer.h"
+#include <list>
 
 #define LOG2(x) ( (x == 1 ) ? 0  : 		                  	\
                  ((x == (0x1 << 1 )) ? 1  :	              			\
@@ -47,7 +48,7 @@ class PREDICTOR {
 
 private:
 	UINT64 ghr;          // global history register
-	// UINT32 *pht;          // pattern history table
+	list<UINT32> *pt;          // path table
 	INT32 historyLength; // history length
 	// UINT32 numPhtEntries; // entries in pht
 
@@ -62,11 +63,13 @@ public:
 	void TrackOtherInst(UINT32 PC, OpType opType, UINT32 branchTarget);
 
 	// Contestants can define their own functions below
-	INT32 getPerceptronPrediction(UINT32 perceptronIndex);
+	INT32 getPerceptronPrediction(UINT32 perceptronIndex, UINT32 PC);
 	UINT32 getPerceptronIndex(UINT32 PC);
+	UINT32 getPathPerceptronIndex(INT32 index);
 	INT32 saturatedWeightInc(INT32 originalWeight);
 	INT32 saturatedWeightDec(INT32 originalWeight);
 	INT32 getBitOfGHR(INT32 bitIndex);
+	INT32 getBitOfPC(INT32 bitIndex, UINT32 PC);
 
 	INT32 numPerceptrons; // number of perceptrons
 	INT32 numWeights; 	   // number of weights in each perceptron

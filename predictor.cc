@@ -25,7 +25,8 @@
 //#define NUM_PERCEPTRONS (HW_BUGDGET / (NUM_WEIGHTS * WEIGHT_SIZE)) //(hardwareBudget / (numWeights * numBitsPerWeight))
 #define NUM_PERCEPTRONS (1<<11)
 
-INT32 perceptronTbl[NUM_PERCEPTRONS][NUM_WEIGHTS]; // table of perceptrons
+INT32 histPerceptronTbl[NUM_PERCEPTRONS/2][NUM_WEIGHTS]; // table of history-based perceptrons
+INT32 addrPerceptronTbl[NUM_PERCEPTRONS/2][NUM_WEIGHTS]; // table of address-based perceptrons
 
 /////////////// STORAGE BUDGET JUSTIFICATION ////////////////
 // Total storage budget: 32KB + 17 bits
@@ -42,6 +43,7 @@ PREDICTOR::PREDICTOR(void) {
 
 	historyLength = HIST_LEN;
 	ghr = 0;
+	pt = new list<UINT32>();
 
 	// Initialize perceptron table
 	// Hardware budget ( in bits ) = Number of perceptrons x Number of weights per perceptron x Number of bits per weight
@@ -51,23 +53,33 @@ PREDICTOR::PREDICTOR(void) {
 	// Number of bits per weight = 8 bits
 	// Threshold value: the best threshold, phi, for a given history length h is always exactly phi = 1.93*h + 14
 	numWeights = NUM_WEIGHTS;
-	numPerceptrons = NUM_PERCEPTRONS;
+	numPerceptrons = NUM_PERCEPTRONS/2;
 
 	threshold = (1.93 * historyLength) + 14;
 
+	// history-based perceptron table initialization
 	for (INT32 i = 0; i < numPerceptrons; i++) {
-		perceptronTbl[i][numWeights - 1] = WEIGHT_INIT; // w0 = 0
+		histPerceptronTbl[i][numWeights - 1] = WEIGHT_INIT; // w0 = 0
 
 		for (INT32 j = 0; j < numWeights; j++) {
-			perceptronTbl[i][j] = WEIGHT_INIT;
+			histPerceptronTbl[i][j] = WEIGHT_INIT;
 		}
 	}
 
-	//cout << "history length: " << historyLength << endl;
-	//cout << "# weights/perceptron: " << WEIGHT_SIZE << endl;
-	//cout << "# weight: " << numWeights << endl;
-	//cout << "# perceptrons: " << numPerceptrons << endl;
-	//cout << "threshold: " << threshold << endl;
+	// address-based perceptron table initialization
+	for (INT32 i = 0; i < numPerceptrons; i++) {
+			addrPerceptronTbl[i][numWeights - 1] = WEIGHT_INIT; // w0 = 0
+
+			for (INT32 j = 0; j < numWeights; j++) {
+				addrPerceptronTbl[i][j] = WEIGHT_INIT;
+			}
+		}
+
+	cout << "history length: " << historyLength << endl;
+	cout << "# weights/perceptron: " << WEIGHT_SIZE << endl;
+	cout << "# weight: " << numWeights << endl;
+	cout << "# perceptrons: " << (numPerceptrons *2) << endl;
+	cout << "threshold: " << threshold << endl;
 
 }
 
@@ -79,7 +91,7 @@ bool PREDICTOR::GetPrediction(UINT32 PC) {
 	// Perceptron branch prediction code
 	// PC = branch address
 	UINT32 perceptronIndex = getPerceptronIndex(PC);
-	INT32 prediction = getPerceptronPrediction(perceptronIndex);
+	INT32 prediction = getPerceptronPrediction(perceptronIndex, PC);
 
 	//cout << "pred: " << prediction << endl;
 
@@ -107,7 +119,7 @@ UINT32 branchTarget) {
 	}
 
 	UINT32 perceptronIndex = getPerceptronIndex(PC);
-	INT32 prediction = getPerceptronPrediction(perceptronIndex);
+	INT32 prediction = getPerceptronPrediction(perceptronIndex, PC);
 
 	//cout << "pred: " << prediction << endl;
 	//cout << "pred dir: " << predictionSign << endl;
@@ -116,30 +128,57 @@ UINT32 branchTarget) {
 	if ((predDir != resolveDir) || (abs(prediction) <= threshold)) {
 		//cout << "UPDATING!!!" << endl;
 		INT32 x;
+		UINT32 pathPerceptronIndex;
 		for (INT32 i = 0; i < historyLength; ++i) {
 			x = getBitOfGHR(i);
+			pathPerceptronIndex = getPathPerceptronIndex(i);
 			if (x == t) {
-				perceptronTbl[perceptronIndex][i] = saturatedWeightInc(perceptronTbl[perceptronIndex][i]);
+				histPerceptronTbl[pathPerceptronIndex][i] = saturatedWeightInc(histPerceptronTbl[pathPerceptronIndex][i]);
 			} else {
-				perceptronTbl[perceptronIndex][i] = saturatedWeightDec(perceptronTbl[perceptronIndex][i]);
+				histPerceptronTbl[pathPerceptronIndex][i] = saturatedWeightDec(histPerceptronTbl[pathPerceptronIndex][i]);
 			}
 
 			//cout << "Saturated Weight: " << perceptronTbl[perceptronIndex][i] << endl;
 		}
 		if(t == 1){
-			perceptronTbl[perceptronIndex][numWeights - 1] = saturatedWeightInc(perceptronTbl[perceptronIndex][numWeights - 1]); //w0
+			histPerceptronTbl[perceptronIndex][numWeights - 1] = saturatedWeightInc(histPerceptronTbl[perceptronIndex][numWeights - 1]); //w0
 		}
 		else{
-			perceptronTbl[perceptronIndex][numWeights - 1] = saturatedWeightDec(perceptronTbl[perceptronIndex][numWeights - 1]); //w0
+			histPerceptronTbl[perceptronIndex][numWeights - 1] = saturatedWeightDec(histPerceptronTbl[perceptronIndex][numWeights - 1]); //w0
+		}
+		// -------------------------------------------------------------
+		INT32 y;
+		for (INT32 j = 0; j < historyLength; ++j) {
+			y = getBitOfPC(j, PC);
+			pathPerceptronIndex = getPathPerceptronIndex(j);
+			if (y == t) {
+				addrPerceptronTbl[pathPerceptronIndex][j] = saturatedWeightInc(addrPerceptronTbl[pathPerceptronIndex][j]);
+			} else {
+				addrPerceptronTbl[pathPerceptronIndex][j] = saturatedWeightDec(addrPerceptronTbl[pathPerceptronIndex][j]);
+			}
+				//cout << "Saturated Weight: " << perceptronTbl[perceptronIndex][i] << endl;
+		}
+		if(t == 1){
+			addrPerceptronTbl[perceptronIndex][numWeights - 1] = saturatedWeightInc(addrPerceptronTbl[perceptronIndex][numWeights - 1]); //w0
+		}
+		else{
+			addrPerceptronTbl[perceptronIndex][numWeights - 1] = saturatedWeightDec(addrPerceptronTbl[perceptronIndex][numWeights - 1]); //w0
 		}
 
 	}
-
+	// -------------------------------------------------------------
 	// update the GHR
 	ghr = (ghr << 1);
 	if (resolveDir == TAKEN) {
 		ghr++;
 	}
+
+	// update path table
+	if(pt->size() > (UINT32)(historyLength))
+	{
+		pt->pop_front();
+	}
+	pt->push_back(PC);
 
 }
 
@@ -163,8 +202,17 @@ UINT32 PREDICTOR::getPerceptronIndex(UINT32 PC) {
 	return (PC % numPerceptrons);
 }
 
-INT32 PREDICTOR::getPerceptronPrediction(UINT32 perceptronIndex) {
-	INT32 pred = 0;
+UINT32 PREDICTOR::getPathPerceptronIndex(INT32 index)
+{
+	list<UINT32>::iterator cii;
+	cii = pt->begin();
+	advance(cii,index);
+	UINT32 pastPC = *cii;
+	return (pastPC % numPerceptrons);
+}
+
+INT32 PREDICTOR::getPerceptronPrediction(UINT32 perceptronIndex, UINT32 PC) {
+	INT32 histPred = 0;
 	// y = w0 + summation from i=1 to n(xi*wi)
 	// xi from branch history(i) where 1 = taken, -1 = not taken
 
@@ -172,17 +220,38 @@ INT32 PREDICTOR::getPerceptronPrediction(UINT32 perceptronIndex) {
 	// xi = ghr[i] (branch history)
 	// wi = perceptronTbl[perceptronIndex][i] (weights)
 	INT32 x;
+	UINT32 pathPerceptronIndex;
 	for (INT32 i = 0; i < historyLength; ++i) {
 		x = getBitOfGHR(i);
-		pred += (x * perceptronTbl[perceptronIndex][i]);
+		pathPerceptronIndex = getPathPerceptronIndex(i);
+		histPred += (x * histPerceptronTbl[pathPerceptronIndex][i]);
 	}
 
 	// w0 + summation
 	// summation = prediction_guess
 	// w0 = perceptronTbl[perceptronIndex][numWeights - 1]
-	pred += perceptronTbl[perceptronIndex][numWeights - 1];
+	histPred += histPerceptronTbl[perceptronIndex][numWeights - 1];
+	// -------------------------------------------------------------
+	INT32 addrPred = 0;
+	// y = w0 + summation from i=1 to n(xi*wi)
+	// xi from branch history(i) where 1 = taken, -1 = not taken
 
-	return pred;
+	// summation
+	// xi = PC[i] (address bits)
+	// wi = perceptronTbl[perceptronIndex][i] (weights)
+	INT32 y;
+	for (INT32 j = 0; j < historyLength; ++j) {
+		y = getBitOfPC(j, PC);
+		pathPerceptronIndex = getPathPerceptronIndex(j);
+		addrPred += (y * addrPerceptronTbl[pathPerceptronIndex][j]);
+	}
+
+	// w0 + summation
+	// summation = prediction_guess
+	// w0 = perceptronTbl[perceptronIndex][numWeights - 1]
+	addrPred += addrPerceptronTbl[perceptronIndex][numWeights - 1];
+	// -------------------------------------------------------------
+	return histPred + addrPred;
 }
 
 INT32 PREDICTOR::saturatedWeightInc(INT32 originalWeight) {
@@ -213,3 +282,14 @@ INT32 PREDICTOR::getBitOfGHR(INT32 bitIndex) {
 	return bit;
 }
 
+INT32 PREDICTOR::getBitOfPC(INT32 bitIndex, UINT32 PC) {
+	INT32 bit = PC >> bitIndex;
+	bit = bit % 2;
+	if (bit == 0) {
+		bit = -1;
+	}
+	else{
+		bit = 1;
+	}
+	return bit;
+}
