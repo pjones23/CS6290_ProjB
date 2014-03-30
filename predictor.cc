@@ -18,12 +18,12 @@
 // 1024 = (1<<10)
 // 2048  = (1<<11)
 // 32KB = 262144 = (1<<18)
-#define HIST_LEN 15
+#define HIST_LEN 63
 #define WEIGHT_SIZE (1<<3) // number of bits per weight
 #define HW_BUGDGET (1<<18) // Hardware budget ( in bits ) = 32 KB = 32768 B = 262144 b
-#define NUM_WEIGHTS (1<<4) // HIST_LEN+1 = 15 + 1
+#define NUM_WEIGHTS (1<<6) // HIST_LEN+1 = 15 + 1
 //#define NUM_PERCEPTRONS (HW_BUGDGET / (NUM_WEIGHTS * WEIGHT_SIZE)) //(hardwareBudget / (numWeights * numBitsPerWeight))
-#define NUM_PERCEPTRONS (1<<11)
+#define NUM_PERCEPTRONS (1<<9)
 
 INT32 histPerceptronTbl[NUM_PERCEPTRONS/2][NUM_WEIGHTS]; // table of history-based perceptrons
 INT32 addrPerceptronTbl[NUM_PERCEPTRONS/2][NUM_WEIGHTS]; // table of address-based perceptrons
@@ -199,7 +199,7 @@ void PREDICTOR::TrackOtherInst(UINT32 PC, OpType opType, UINT32 branchTarget) {
 /////////////////////////////////////////////////////////////
 
 UINT32 PREDICTOR::getPerceptronIndex(UINT32 PC) {
-	return (PC % numPerceptrons);
+	return ((PC^ghr) % numPerceptrons);
 }
 
 UINT32 PREDICTOR::getPathPerceptronIndex(INT32 index)
@@ -208,7 +208,7 @@ UINT32 PREDICTOR::getPathPerceptronIndex(INT32 index)
 	cii = pt->begin();
 	advance(cii,index);
 	UINT32 pastPC = *cii;
-	return (pastPC % numPerceptrons);
+	return ((pastPC^ghr) % numPerceptrons);
 }
 
 INT32 PREDICTOR::getPerceptronPrediction(UINT32 perceptronIndex, UINT32 PC) {
