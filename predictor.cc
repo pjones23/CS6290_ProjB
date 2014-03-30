@@ -75,11 +75,11 @@ PREDICTOR::PREDICTOR(void) {
 			}
 		}
 
-	cout << "history length: " << historyLength << endl;
-	cout << "# weights/perceptron: " << WEIGHT_SIZE << endl;
-	cout << "# weight: " << numWeights << endl;
-	cout << "# perceptrons: " << (numPerceptrons *2) << endl;
-	cout << "threshold: " << threshold << endl;
+	//cout << "history length: " << historyLength << endl;
+	//cout << "# weights/perceptron: " << WEIGHT_SIZE << endl;
+	//cout << "# weight: " << numWeights << endl;
+	//cout << "# perceptrons: " << (numPerceptrons *2) << endl;
+	//cout << "threshold: " << threshold << endl;
 
 }
 
